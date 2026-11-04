@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>MI 보증금 체크</title>
+<style>
+body{font-family:sans-serif;margin:0;padding:12px;max-width:480px;margin:auto}
+h1{font-size:18px;margin:0 0 8px}
+#reader{width:100%;background:#000}
+button{font-size:16px;padding:12px;margin:6px 0;width:100%}
+input{font-size:16px;padding:10px;width:100%;box-sizing:border-box}
+#res{margin-top:10px;padding:16px;border:2px solid;text-align:center;display:none}
+#res b{display:block;font-size:44px;margin:6px 0}
+.yes{border-color:green;color:green}.no{border-color:red;color:red}.unk{border-color:orange;color:orange}
+.two{display:flex;gap:8px}.two button{flex:1}
+small{color:gray}
+</style>
+</head>
+<body>
+<h1>미시간 병/캔 보증금 (10¢)</h1>
+<div id="reader"></div>
+<button id="start">카메라 켜기 (바코드 찍기)</button>
+<input id="manual" inputmode="numeric" placeholder="바코드 번호 직접 입력">
+<button id="go">확인</button>
+<div id="res"></div>
+<hr>
+<small>
+<b>환불 O (10¢):</b> 맥주, 탄산음료, 탄산수/스파클링, 콤부차, 캔 칵테일(위스키/보드카/와인 베이스 혼합주)<br>
+<b>환불 X:</b> 일반 생수, 주스, 우유, 와인, 양주(병), 비탄산 스포츠/차/커피음료<br>
+미시간 판매 제품은 병/캔에 "MI 10¢" 표시가 있어요. 다른 주에서 산 건 안 됨. 코스트코는 하루 $25어치까지 받아줘요.
+</small>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<script>
+var $=function(i){return document.getElementById(i)};
+var qr=null,last="";
+function mem(){try{return JSON.parse(localStorage.getItem("mi")||"{}")}catch(e){return{}}}
+function save(c,v){try{var m=mem();m[c]=v;localStorage.setItem("mi",JSON.stringify(m))}catch(e){}}
+
+async function lookup(code){
+  try{
+    var r=await fetch("https://world.openfoodfacts.org/api/v2/product/"+code+".json?fields=product_name,categories_tags");
+    var j=await r.json();
+    if(j.status!==1)return null;
+    var t=(j.product.categories_tags||[]).join(" ");
+    var name=j.product.product_name||"";
+    if(/beer|sodas|carbonated|sparkling|seltzer|kombucha|colas/.test(t))return{v:"yes",name:name};
+    if(/waters|juices|milks|wines|spirits/.test(t))return{v:"no",name:name};
+    return{v:"unk",name:name};
+  }catch(e){return null}
+}
+
+function show(code,res,src){
+  var el=$("res");el.style.display="block";
+  var txt={yes:"환불 가능",no:"환불 불가",unk:"모르겠음"}[res.v];
+  el.className=res.v;
+  el.innerHTML="<small>"+code+(res.name?" "+res.name:"")+"</small><b>"+txt+"</b>"+
+    (src?"<small>"+src+"</small>":"<small>병/캔의 'MI 10¢' 표시 확인</small>")+
+    '<div class="two"><button data-v="yes">10¢ 있음</button><button data-v="no">없음</button></div>'+
+    "<small>누르면 이 바코드를 기억해요</small>";
+  var bs=el.querySelectorAll("button");
+  for(var i=0;i<bs.length;i++)bs[i].onclick=function(){save(code,this.getAttribute("data-v"));show(code,{v:this.getAttribute("data-v"),name:res.name},"내가 저장한 정보")};
+}
+
+async function check(code){
+  code=code.trim();if(!code)return;
+  var m=mem()[code];
+  if(m)return show(code,{v:m},"내가 저장한 정보");
+  var el=$("res");el.style.display="block";el.className="";el.textContent="조회 중...";
+  var r=await lookup(code);
+  show(code,r||{v:"unk"});
+}
+
+$("start").onclick=async function(){
+  try{
+    if(!qr)qr=new Html5Qrcode("reader");
+    if(qr.isScanning)return;
+    await qr.start({facingMode:"environment"},{fps:10,qrbox:{width:260,height:140}},function(t){
+      if(t===last)return;last=t;if(navigator.vibrate)navigator.vibrate(60);check(t);
+    });
+  }catch(e){alert("카메라를 열 수 없어요. 카메라 권한 허용 + https 주소에서 열어주세요.")}
+};
+$("go").onclick=function(){check($("manual").value)};
+</script>
+</body>
+</html>

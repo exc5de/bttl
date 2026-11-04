@@ -8,43 +8,47 @@
 <style>
 body{font-family:sans-serif;margin:0;padding:12px;max-width:480px;margin:auto}
 h1{font-size:18px;margin:0 0 8px}
-#reader{width:100%;background:#000}
+#box{position:relative;background:#000}
+video{width:100%;display:block;max-height:45vh;object-fit:cover}
+#line{position:absolute;left:5%;right:5%;top:50%;height:2px;background:red;opacity:.7}
 button{font-size:16px;padding:12px;margin:6px 0;width:100%}
 input{font-size:16px;padding:10px;width:100%;box-sizing:border-box}
-#res{margin-top:10px;padding:16px;border:2px solid;text-align:center;display:none}
-#res b{display:block;font-size:44px;margin:6px 0}
-.yes{border-color:green;color:green}.no{border-color:red;color:red}.unk{border-color:orange;color:orange}
+#res{margin-top:10px;padding:16px;border:3px solid;text-align:center}
+#res b{display:block;font-size:48px;margin:6px 0}
+.yes{border-color:green;color:green}.no{border-color:red;color:red}.unk{border-color:orange;color:orange}.wait{border-color:gray;color:gray}
 .two{display:flex;gap:8px}.two button{flex:1}
 small{color:gray}
 </style>
 </head>
 <body>
 <h1>미시간 병/캔 보증금 (10¢)</h1>
-<div id="reader"></div>
-<button id="start">카메라 켜기 (바코드 찍기)</button>
-<div id="tools" style="display:none">
-<label>확대 <input type="range" id="zoom" style="width:70%"></label>
-<button id="torch">플래시 켜기/끄기</button>
-</div>
-<label style="display:block;border:1px solid gray;padding:12px;text-align:center;margin:6px 0">사진으로 인식 (카메라 앱으로 찍기, 가장 잘 됨)
-<input type="file" id="file" accept="image/*" capture="environment" style="display:none"></label>
-<small>팁: 바코드를 화면 가로 폭 가득 오게, 15~25cm 거리에서 천천히. 안 되면 '사진으로 인식'.</small>
-<input id="manual" inputmode="numeric" placeholder="바코드 번호 직접 입력">
+<div id="box"><video id="v" playsinline muted autoplay></video><div id="line"></div></div>
+<button id="start" style="display:none">카메라 켜기</button>
+<div id="res" class="wait"><b>바코드를 빨간 선에 대세요</b></div>
+<input id="manual" inputmode="numeric" placeholder="안 되면 번호 직접 입력" style="margin-top:10px">
 <button id="go">확인</button>
-<div id="res"></div>
 <hr>
 <small>
-<b>환불 O (10¢):</b> 맥주, 탄산음료, 탄산수/스파클링, 콤부차, 캔 칵테일(위스키/보드카/와인 베이스 혼합주)<br>
-<b>환불 X:</b> 일반 생수, 주스, 우유, 와인, 양주(병), 비탄산 스포츠/차/커피음료<br>
-미시간 판매 제품은 병/캔에 "MI 10¢" 표시가 있어요. 다른 주에서 산 건 안 됨. 코스트코는 하루 $25어치까지 받아줘요.
+<b>환불 O (10¢):</b> 맥주, 탄산음료, 탄산수/스파클링, 콤부차, 캔 칵테일<br>
+<b>환불 X:</b> 일반 생수, 주스, 우유, 와인, 양주(병), 비탄산 음료<br>
+병/캔에 "MI 10¢" 표시가 있으면 확실. 다른 주에서 산 건 안 됨.
 </small>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/barcode-detector@3.0.1/dist/iife/ponyfill.min.js"></script>
 <script>
 var $=function(i){return document.getElementById(i)};
-var qr=null,last="";
+var last="",busy=false,det=null;
+
 function mem(){try{return JSON.parse(localStorage.getItem("mi")||"{}")}catch(e){return{}}}
 function save(c,v){try{var m=mem();m[c]=v;localStorage.setItem("mi",JSON.stringify(m))}catch(e){}}
+
+// UPC/EAN 체크섬 검증 (오인식 방지)
+function validCode(s){
+  if(!/^\d+$/.test(s)||[8,12,13].indexOf(s.length)<0)return false;
+  var d=s.split("").map(Number),chk=d.pop(),sum=0;
+  for(var i=d.length-1,k=0;i>=0;i--,k++)sum+=d[i]*(k%2===0?3:1);
+  return (10-sum%10)%10===chk;
+}
 
 async function lookup(code){
   try{
@@ -60,7 +64,7 @@ async function lookup(code){
 }
 
 function show(code,res,src){
-  var el=$("res");el.style.display="block";
+  var el=$("res");
   var txt={yes:"환불 가능",no:"환불 불가",unk:"모르겠음"}[res.v];
   el.className=res.v;
   el.innerHTML="<small>"+code+(res.name?" "+res.name:"")+"</small><b>"+txt+"</b>"+
@@ -68,65 +72,61 @@ function show(code,res,src){
     '<div class="two"><button data-v="yes">10¢ 있음</button><button data-v="no">없음</button></div>'+
     "<small>누르면 이 바코드를 기억해요</small>";
   var bs=el.querySelectorAll("button");
-  for(var i=0;i<bs.length;i++)bs[i].onclick=function(){save(code,this.getAttribute("data-v"));show(code,{v:this.getAttribute("data-v"),name:res.name},"내가 저장한 정보")};
+  for(var i=0;i<bs.length;i++)bs[i].onclick=function(){var v=this.getAttribute("data-v");save(code,v);show(code,{v:v,name:res.name},"내가 저장한 정보")};
 }
 
 async function check(code){
   code=code.trim();if(!code)return;
   var m=mem()[code];
   if(m)return show(code,{v:m},"내가 저장한 정보");
-  var el=$("res");el.style.display="block";el.className="";el.textContent="조회 중...";
+  var el=$("res");el.className="wait";el.innerHTML="<b>조회 중...</b>";
   var r=await lookup(code);
   show(code,r||{v:"unk"});
 }
 
-var F=window.Html5QrcodeSupportedFormats;
-function getQr(){
-  if(!qr)qr=new Html5Qrcode("reader",{
-    formatsToSupport:[F.EAN_13,F.UPC_A,F.UPC_E,F.EAN_8,F.CODE_128],
-    useBarCodeDetectorIfSupported:true,verbose:false});
-  return qr;
-}
-function onCode(t){
-  if(t===last)return;last=t;if(navigator.vibrate)navigator.vibrate(60);check(t);
-}
-var torchOn=false;
-$("start").onclick=async function(){
+// ---- 카메라 + 연속 인식 ----
+var cv=document.createElement("canvas"),cx=cv.getContext("2d",{willReadFrequently:true});
+
+async function startCam(){
   try{
-    var q=getQr();
-    if(q.isScanning)return;
-    await q.start({facingMode:"environment"},{
-      fps:15,
-      qrbox:function(w,h){var bw=Math.floor(w*0.92);return{width:bw,height:Math.floor(bw*0.5)}},
-      disableFlip:true,
-      videoConstraints:{facingMode:"environment",width:{ideal:1920},height:{ideal:1080},focusMode:"continuous"}
-    },onCode,function(){});
+    var stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{
+      facingMode:{ideal:"environment"},width:{ideal:1920},height:{ideal:1080},
+      advanced:[{focusMode:"continuous"}]}});
+    var v=$("v");v.srcObject=stream;v.setAttribute("playsinline","");v.muted=true;
+    await v.play();
+    $("start").style.display="none";
+    var Det=(window.BarcodeDetectionAPI&&window.BarcodeDetectionAPI.BarcodeDetector)||window.BarcodeDetector;
+    det=new Det({formats:["ean_13","upc_a","upc_e","ean_8"]});
+    loop();
+  }catch(e){
+    $("start").style.display="block";
+    $("res").className="unk";$("res").innerHTML="<b>카메라 안 열림</b><small>https 주소인지, Safari 카메라 권한 허용인지 확인 후 '카메라 켜기'</small>";
+  }
+}
+
+async function loop(){
+  var v=$("v");
+  if(!busy&&v.videoWidth){
+    busy=true;
     try{
-      var cap=q.getRunningTrackCapabilities();
-      if(cap&&(cap.zoom||cap.torch)){
-        $("tools").style.display="block";
-        if(cap.zoom){var z=$("zoom");z.min=cap.zoom.min;z.max=cap.zoom.max;z.step=cap.zoom.step||0.1;z.value=Math.min(cap.zoom.max,Math.max(cap.zoom.min,2));
-          q.applyVideoConstraints({advanced:[{zoom:Number(z.value)}]}).catch(function(){});
-          z.oninput=function(){q.applyVideoConstraints({advanced:[{zoom:Number(z.value)}]}).catch(function(){})};}
-        else $("zoom").parentNode.style.display="none";
-        $("torch").style.display=cap.torch?"block":"none";
+      // 가운데 가로띠만 잘라서 인식 (빠르고 정확)
+      var w=v.videoWidth,h=v.videoHeight,ch=Math.round(h*0.5),sy=Math.round((h-ch)/2);
+      cv.width=w;cv.height=ch;
+      cx.drawImage(v,0,sy,w,ch,0,0,w,ch);
+      var out=await det.detect(cv);
+      for(var i=0;i<out.length;i++){
+        var c=out[i].rawValue;
+        if(validCode(c)&&c!==last){last=c;if(navigator.vibrate)navigator.vibrate(60);check(c);break}
       }
     }catch(e){}
-  }catch(e){alert("카메라를 열 수 없어요. 카메라 권한 허용 + https 주소에서 열어주세요. (아래 '사진으로 인식'은 항상 가능)")}
-};
-$("torch").onclick=function(){torchOn=!torchOn;qr.applyVideoConstraints({advanced:[{torch:torchOn}]}).catch(function(){})};
-$("file").onchange=async function(){
-  var f=this.files[0];if(!f)return;
-  var el=$("res");el.style.display="block";el.className="";el.textContent="사진 분석 중...";
-  try{
-    var q=getQr();
-    if(q.isScanning)await q.stop();
-    var r=await q.scanFile(f,false);
-    last=r;check(r);
-  }catch(e){el.className="unk";el.innerHTML="<b>인식 실패</b><small>바코드가 사진에 크고 선명하게 나오게 다시 찍거나, 번호를 직접 입력하세요</small>"}
-  this.value="";
-};
-$("go").onclick=function(){check($("manual").value)};
+    busy=false;
+  }
+  setTimeout(loop,60);
+}
+
+$("start").onclick=startCam;
+$("go").onclick=function(){last=$("manual").value.trim();check(last)};
+startCam();
 </script>
 </body>
 </html>

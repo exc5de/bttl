@@ -43,12 +43,30 @@ var last="",busy=false,det=null;
 function mem(){try{return JSON.parse(localStorage.getItem("mi")||"{}")}catch(e){return{}}}
 function save(c,v){try{var m=mem();m[c]=v;localStorage.setItem("mi",JSON.stringify(m))}catch(e){}}
 
-// UPC/EAN 체크섬 검증 (오인식 방지)
-function validCode(s){
-  if(!/^\d+$/.test(s)||[8,12,13].indexOf(s.length)<0)return false;
-  var d=s.split("").map(Number),chk=d.pop(),sum=0;
+// UPC-E(8자리, 캔/작은 제품)를 UPC-A(12자리)로 변환
+function upcEtoA(s){
+  var n=s[0],e=s.slice(1,7),c=s[7],a=e[0],b=e[1],cc=e[2],d=e[3],ee=e[4],f=e[5],body;
+  if(f==="0"||f==="1"||f==="2")body=n+a+b+f+"0000"+cc+d+ee;
+  else if(f==="3")body=n+a+b+cc+"00000"+d+ee;
+  else if(f==="4")body=n+a+b+cc+d+"00000"+ee;
+  else body=n+a+b+cc+d+ee+"0000"+f;
+  return body+c;
+}
+function chk(s){ // UPC-A/EAN-13/EAN-8 체크섬
+  var d=s.split("").map(Number),c=d.pop(),sum=0;
   for(var i=d.length-1,k=0;i>=0;i--,k++)sum+=d[i]*(k%2===0?3:1);
-  return (10-sum%10)%10===chk;
+  return (10-sum%10)%10===c;
+}
+// 유효하면 정규화된 코드 반환, 아니면 null
+function normCode(s){
+  s=(s||"").trim();
+  if(!/^\d+$/.test(s))return null;
+  if(s.length===8){
+    if((s[0]==="0"||s[0]==="1")){var u=upcEtoA(s);if(chk(u))return u}
+    return chk(s)?s:null;
+  }
+  if(s.length===12||s.length===13)return chk(s)?s:null;
+  return null;
 }
 
 async function lookup(code){
@@ -127,8 +145,8 @@ async function loop(){
       pass++;frames++;
       if(frames%5===0)$("st").textContent="인식 중... ("+v.videoWidth+"x"+v.videoHeight+", "+frames+"회 분석)";
       for(var i=0;i<out.length;i++){
-        var c=out[i].rawValue;
-        if(validCode(c)&&c!==last){last=c;if(navigator.vibrate)navigator.vibrate(60);check(c);break}
+        var c=normCode(out[i].rawValue);
+        if(c&&c!==last){last=c;if(navigator.vibrate)navigator.vibrate(60);check(c);break}
       }
     }catch(e){$("st").textContent="인식 오류: "+e}
     busy=false;
@@ -137,7 +155,7 @@ async function loop(){
 }
 
 $("start").onclick=startCam;
-$("go").onclick=function(){last=$("manual").value.trim();check(last)};
+$("go").onclick=function(){var c=normCode($("manual").value)||$("manual").value.trim();last=c;check(c)};
 startCam();
 </script>
 </body>

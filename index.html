@@ -82,25 +82,26 @@ async function lookup(code){
   }catch(e){return null}
 }
 
-function show(code,res,src){
+function fmt(r){return r&&r.length===8?r[0]+" "+r.slice(1,7)+" "+r[7]:r}
+function show(code,res,src,disp){
   var el=$("res");
   var txt={yes:"환불 가능",no:"환불 불가",unk:"모르겠음"}[res.v];
   el.className=res.v;
-  el.innerHTML="<small>"+code+(res.name?" "+res.name:"")+"</small><b>"+txt+"</b>"+
+  el.innerHTML="<small>"+fmt(disp||code)+(res.name?" "+res.name:"")+"</small><b>"+txt+"</b>"+
     (src?"<small>"+src+"</small>":"<small>병/캔의 'MI 10¢' 표시 확인</small>")+
     '<div class="two"><button data-v="yes">10¢ 있음</button><button data-v="no">없음</button></div>'+
     "<small>누르면 이 바코드를 기억해요</small>";
   var bs=el.querySelectorAll("button");
-  for(var i=0;i<bs.length;i++)bs[i].onclick=function(){var v=this.getAttribute("data-v");save(code,v);show(code,{v:v,name:res.name},"내가 저장한 정보")};
+  for(var i=0;i<bs.length;i++)bs[i].onclick=function(){var v=this.getAttribute("data-v");save(code,v);show(code,{v:v,name:res.name},"내가 저장한 정보",disp)};
 }
 
-async function check(code){
+async function check(code,disp){
   code=code.trim();if(!code)return;
   var m=mem()[code];
-  if(m)return show(code,{v:m},"내가 저장한 정보");
+  if(m)return show(code,{v:m},"내가 저장한 정보",disp);
   var el=$("res");el.className="wait";el.innerHTML="<b>조회 중...</b>";
   var r=await lookup(code);
-  show(code,r||{v:"unk"});
+  show(code,r||{v:"unk"},null,disp);
 }
 
 // ---- 카메라 + 연속 인식 ----
@@ -145,8 +146,8 @@ async function loop(){
       pass++;frames++;
       if(frames%5===0)$("st").textContent="인식 중... ("+v.videoWidth+"x"+v.videoHeight+", "+frames+"회 분석)";
       for(var i=0;i<out.length;i++){
-        var c=normCode(out[i].rawValue);
-        if(c&&c!==last){last=c;if(navigator.vibrate)navigator.vibrate(60);check(c);break}
+        var raw=out[i].rawValue,c=normCode(raw);
+        if(c&&c!==last){last=c;if(navigator.vibrate)navigator.vibrate(60);check(c,raw);break}
       }
     }catch(e){$("st").textContent="인식 오류: "+e}
     busy=false;
@@ -155,7 +156,7 @@ async function loop(){
 }
 
 $("start").onclick=startCam;
-$("go").onclick=function(){var c=normCode($("manual").value)||$("manual").value.trim();last=c;check(c)};
+$("go").onclick=function(){var raw=$("manual").value.trim(),c=normCode(raw)||raw;last=c;check(c,raw)};
 startCam();
 </script>
 </body>
